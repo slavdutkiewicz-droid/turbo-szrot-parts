@@ -7,101 +7,79 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Package } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { toast } from "sonner";
-import { z } from "zod";
-
-const authSchema = z.object({
-  email: z.string().email("Invalid email address"),
-  password: z.string().min(6, "Password must be at least 6 characters"),
-});
+import { useToast } from "@/hooks/use-toast";
 
 export default function Auth() {
   const [isLoading, setIsLoading] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [accountType, setAccountType] = useState<"buyer" | "seller">("buyer");
   const navigate = useNavigate();
+  const { toast } = useToast();
 
   useEffect(() => {
-    const checkUser = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        navigate("/");
-      }
-    };
-    checkUser();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
       if (session) {
         navigate("/");
       }
     });
-
-    return () => subscription.unsubscribe();
   }, [navigate]);
 
-  const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
 
-    const formData = new FormData(e.currentTarget);
-    const email = formData.get("email") as string;
-    const password = formData.get("password") as string;
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
 
-    try {
-      authSchema.parse({ email, password });
-
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+    if (error) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message,
       });
-
-      if (error) throw error;
-      
-      toast.success("Welcome back!");
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        toast.error(error.errors[0].message);
-      } else if (error instanceof Error) {
-        toast.error(error.message);
-      }
-    } finally {
-      setIsLoading(false);
+    } else {
+      toast({
+        title: "Success",
+        description: "Logged in successfully!",
+      });
+      navigate("/");
     }
+
+    setIsLoading(false);
   };
 
-  const handleRegister = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
 
-    const formData = new FormData(e.currentTarget);
-    const email = formData.get("register-email") as string;
-    const password = formData.get("register-password") as string;
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          role: accountType,
+        },
+        emailRedirectTo: `${window.location.origin}/`,
+      },
+    });
 
-    try {
-      authSchema.parse({ email, password });
-
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/`,
-          data: {
-            role: accountType,
-          }
-        }
+    if (error) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message,
       });
-
-      if (error) throw error;
-
-      toast.success("Account created successfully!");
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        toast.error(error.errors[0].message);
-      } else if (error instanceof Error) {
-        toast.error(error.message);
-      }
-    } finally {
-      setIsLoading(false);
+    } else {
+      toast({
+        title: "Success",
+        description: "Account created successfully! You can now log in.",
+      });
     }
+
+    setIsLoading(false);
   };
 
   return (
@@ -138,6 +116,8 @@ export default function Auth() {
                       id="email"
                       type="email"
                       placeholder="your@email.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
                       required
                     />
                   </div>
@@ -147,6 +127,8 @@ export default function Auth() {
                       id="password"
                       type="password"
                       placeholder="••••••••"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
                       required
                     />
                   </div>
@@ -164,6 +146,8 @@ export default function Auth() {
                       id="register-email"
                       type="email"
                       placeholder="your@email.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
                       required
                     />
                   </div>
@@ -173,6 +157,8 @@ export default function Auth() {
                       id="register-password"
                       type="password"
                       placeholder="••••••••"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
                       required
                     />
                   </div>
@@ -180,9 +166,9 @@ export default function Auth() {
                     <Label htmlFor="account-type">Account Type</Label>
                     <select
                       id="account-type"
+                      className="w-full h-10 px-3 rounded-md bg-input border border-border text-foreground"
                       value={accountType}
                       onChange={(e) => setAccountType(e.target.value as "buyer" | "seller")}
-                      className="w-full h-10 px-3 rounded-md bg-input border border-border text-foreground"
                       required
                     >
                       <option value="buyer">Buyer</option>
