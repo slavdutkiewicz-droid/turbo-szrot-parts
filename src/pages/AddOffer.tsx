@@ -1,15 +1,87 @@
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Header } from "@/components/Header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Upload } from "lucide-react";
+import { Upload, X } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 export default function AddOffer() {
-  const handleSubmit = (e: React.FormEvent) => {
+  const navigate = useNavigate();
+  const [isLoading, setIsLoading] = useState(false);
+  const [images, setImages] = useState<File[]>([]);
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    setImages(prev => [...prev, ...files].slice(0, 5)); // Max 5 images
+  };
+
+  const removeImage = (index: number) => {
+    setImages(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    // Form submission logic will be implemented with backend
+    setIsLoading(true);
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        toast.error("Please login to add offers");
+        navigate("/auth");
+        return;
+      }
+
+      const formData = new FormData(e.currentTarget);
+      
+      // Upload images
+      const imageUrls: string[] = [];
+      for (const image of images) {
+        const fileExt = image.name.split('.').pop();
+        const fileName = `${user.id}/${Math.random()}.${fileExt}`;
+        
+        const { error: uploadError } = await supabase.storage
+          .from('offer-images')
+          .upload(fileName, image);
+
+        if (uploadError) throw uploadError;
+
+        const { data: { publicUrl } } = supabase.storage
+          .from('offer-images')
+          .getPublicUrl(fileName);
+
+        imageUrls.push(publicUrl);
+      }
+
+      // Create offer
+      const { error } = await supabase.from('offers').insert({
+        seller_id: user.id,
+        title: formData.get('title') as string,
+        brand: formData.get('brand') as string,
+        model: formData.get('model') as string,
+        year: parseInt(formData.get('year') as string),
+        price: parseFloat(formData.get('price') as string),
+        condition: formData.get('condition') as string,
+        description: formData.get('description') as string,
+        location: formData.get('location') as string,
+        images: imageUrls,
+        status: 'active'
+      });
+
+      if (error) throw error;
+
+      toast.success("Offer published successfully!");
+      navigate("/dashboard");
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to publish offer");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -89,24 +161,51 @@ export default function AddOffer() {
               </div>
 
               <div className="space-y-2">
-                <Label>Images</Label>
-                <div className="border-2 border-dashed border-border rounded-lg p-8 text-center hover:border-accent transition-colors cursor-pointer">
-                  <Upload className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                  <p className="text-muted-foreground mb-2">
-                    Click to upload or drag and drop
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    PNG, JPG up to 10MB
-                  </p>
+                <Label htmlFor="images">Images (Max 5)</Label>
+                <div className="border-2 border-dashed border-border rounded-lg p-8 text-center hover:border-accent transition-colors">
+                  <input
+                    id="images"
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={handleImageChange}
+                    className="hidden"
+                  />
+                  <label htmlFor="images" className="cursor-pointer">
+                    <Upload className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+                    <p className="text-muted-foreground mb-2">
+                      Click to upload or drag and drop
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      PNG, JPG up to 10MB
+                    </p>
+                  </label>
                 </div>
+                {images.length > 0 && (
+                  <div className="grid grid-cols-3 gap-4 mt-4">
+                    {images.map((image, index) => (
+                      <div key={index} className="relative group">
+                        <img
+                          src={URL.createObjectURL(image)}
+                          alt={`Preview ${index + 1}`}
+                          className="w-full h-24 object-cover rounded-lg"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeImage(index)}
+                          className="absolute top-1 right-1 bg-destructive text-destructive-foreground rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="flex gap-4 pt-4">
-                <Button type="submit" className="flex-1 gradient-accent h-12">
-                  Publish Offer
-                </Button>
-                <Button type="button" variant="secondary" className="flex-1 h-12">
-                  Save as Draft
+                <Button type="submit" className="flex-1 gradient-accent h-12" disabled={isLoading}>
+                  {isLoading ? "Publishing..." : "Publish Offer"}
                 </Button>
               </div>
             </form>
